@@ -19,6 +19,11 @@ test_program
 *.xz
 *.gz
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # IDE files
 .vscode/
 .idea/
