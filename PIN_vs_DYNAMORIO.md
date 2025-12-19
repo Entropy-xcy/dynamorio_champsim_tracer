@@ -115,7 +115,9 @@ if (instr_is_cbr(instr)) {  // Conditional branch
 1. When a conditional branch executes, the tracer saves the instruction state and fall-through address
 2. At the next basic block, the tracer resolves whether the branch was taken by comparing the current PC with the fall-through address
 
-This achieves the same accuracy as PIN's `IARG_BRANCH_TAKEN` mechanism.### 5. Thread Safety
+This achieves the same accuracy as PIN's `IARG_BRANCH_TAKEN` mechanism.
+
+### 5. Thread Safety
 
 #### PIN
 ```cpp

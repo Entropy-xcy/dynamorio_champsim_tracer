@@ -146,6 +146,12 @@ at_conditional_branch_setup(app_pc cbr_pc, app_pc fallthrough_pc)
     void *drcontext = dr_get_current_drcontext();
     per_thread_t *data = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
     
+    // Only set up for resolution if this instruction will be traced
+    if (!should_write()) {
+        data->has_pending_cbr = false;
+        return;
+    }
+    
     // Mark that this is a branch instruction
     data->curr_instr.is_branch = 1;
     
@@ -174,7 +180,7 @@ resolve_pending_branch(app_pc current_bb_pc)
         }
         
         // Write the resolved branch instruction to the trace
-        // Note: The should_write() check was already done when we set up the CBR
+        // The should_write() check was already done in at_conditional_branch_setup
         write_trace_instruction(data, &data->pending_cbr_instr);
         
         data->has_pending_cbr = false;
