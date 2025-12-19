@@ -148,7 +148,7 @@ at_conditional_branch_setup(app_pc cbr_pc, app_pc fallthrough_pc)
     
     // Only set up for resolution if this instruction will be traced
     if (!should_write()) {
-        data->has_pending_cbr = false;
+        // Don't modify has_pending_cbr - there might be a previous CBR to resolve
         return;
     }
     
@@ -156,7 +156,7 @@ at_conditional_branch_setup(app_pc cbr_pc, app_pc fallthrough_pc)
     data->curr_instr.is_branch = 1;
     
     // Save the current instruction record for later resolution
-    memcpy(&data->pending_cbr_instr, &data->curr_instr, sizeof(trace_instr_format_t));
+    data->pending_cbr_instr = data->curr_instr;
     
     // Save info about this conditional branch for resolution in the next BB
     data->last_cbr_fallthrough = fallthrough_pc;
