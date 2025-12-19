@@ -280,7 +280,10 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
                                                          instr_get_src(instr, i), 
                                                          scratch_reg_1, DR_REG_NULL);
                     if (res) {
-                        // scratch_reg_1 now contains the computed address, pass it as a value
+                        // drutil_insert_get_mem_addr stores the computed address in scratch_reg_1
+                        // When we pass opnd_create_reg(scratch_reg_1) to dr_insert_clean_call,
+                        // DynamoRIO will automatically read the VALUE from that register
+                        // and pass it as the app_pc parameter to at_memory_read
                         dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_read,
                                            false, 1, opnd_create_reg(scratch_reg_1));
                     }
@@ -298,7 +301,8 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
                                                          instr_get_dst(instr, i),
                                                          scratch_reg_2, DR_REG_NULL);
                     if (res) {
-                        // scratch_reg_2 now contains the computed address, pass it as a value
+                        // drutil_insert_get_mem_addr stores the computed address in scratch_reg_2
+                        // DynamoRIO will read the value from scratch_reg_2 and pass it to at_memory_write
                         dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_write,
                                            false, 1, opnd_create_reg(scratch_reg_2));
                     }
