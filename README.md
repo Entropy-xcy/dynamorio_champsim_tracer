@@ -207,6 +207,25 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 - [DynamoRIO GitHub Repository](https://github.com/DynamoRIO/dynamorio)
 - [DynamoRIO Documentation](https://dynamorio.org/page_documentation.html)
 
+## Verification
+
+To verify that the DynamoRIO tracer produces correct traces:
+
+```bash
+# Quick verification (no PIN required)
+./verify_tracer.sh
+```
+
+For full comparison with the original PIN tracer, see [VERIFICATION.md](VERIFICATION.md).
+
+The verification process:
+1. Validates trace format (64 bytes per instruction)
+2. Checks trace content for correctness
+3. Optionally compares with PIN tracer output
+4. Reports any discrepancies
+
+**Note:** Register IDs differ between PIN and DynamoRIO but are semantically equivalent. The comparison tool accounts for this.
+
 ## Citation
 
 If you use this tracer in your research, please cite both ChampSim and DynamoRIO:

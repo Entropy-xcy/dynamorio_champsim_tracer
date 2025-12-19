@@ -10,6 +10,9 @@ cmake-build-*/
 *.dylib
 *.a
 
+# Test programs
+test_program
+
 # Trace files
 *.trace
 *.champsim
