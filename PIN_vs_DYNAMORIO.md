@@ -111,7 +111,11 @@ if (instr_is_cbr(instr)) {  // Conditional branch
 }
 ```
 
-**Note**: The current DynamoRIO implementation marks all conditional branches as taken. A more sophisticated version could track actual branch outcomes using BB transitions.
+**Note**: The current DynamoRIO implementation marks all conditional branches as taken. This is a **known limitation** that should be fixed in a future version. A more sophisticated implementation would track actual branch outcomes by comparing subsequent basic block addresses.
+
+**Impact**: This affects branch prediction accuracy in ChampSim simulations. For workloads where branch prediction is critical, consider:
+1. Using the PIN tracer if x86-only is acceptable
+2. Contributing an enhancement to track actual branch outcomes (see CONTRIBUTING.md)
 
 ### 5. Thread Safety
 

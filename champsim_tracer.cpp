@@ -33,9 +33,10 @@ using trace_instr_format_t = input_instr;
 // Global variables
 /* ================================================================== */
 
-static uint64 instrCount = 0;
 static file_t outfile;
 static void *trace_buffer_mutex;
+static void *instr_count_mutex;
+static uint64 instrCount = 0;
 
 // Thread-local storage for current instruction
 typedef struct {
@@ -76,9 +77,13 @@ reset_current_instruction(per_thread_t *data, app_pc pc)
 static bool
 should_write()
 {
-    instrCount++;
-    return (instrCount > op_skip_instructions.get_value()) &&
-           (instrCount <= (op_trace_instructions.get_value() + op_skip_instructions.get_value()));
+    // Thread-safe increment of instruction counter
+    dr_mutex_lock(instr_count_mutex);
+    uint64 current_count = ++instrCount;
+    dr_mutex_unlock(instr_count_mutex);
+    
+    return (current_count > op_skip_instructions.get_value()) &&
+           (current_count <= (op_trace_instructions.get_value() + op_skip_instructions.get_value()));
 }
 
 static void
@@ -208,6 +213,10 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
                         false, 1, OPND_CREATE_INTPTR(pc));
 
     // Handle branch instructions
+    // NOTE: Current implementation marks all branches as taken
+    // This is a simplification - a more sophisticated version would track
+    // actual branch outcomes by checking if the next basic block in the
+    // trace matches the fall-through or branch target address
     if (instr_is_cbr(instr)) {
         // Conditional branch
         dr_insert_clean_call(drcontext, bb, instr, (void *)at_branch,
@@ -242,12 +251,19 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     }
 
     // Handle memory operations
+    // For memory references, we need to compute the address at runtime
     if (instr_reads_memory(instr)) {
         for (int i = 0; i < instr_num_srcs(instr); i++) {
             if (opnd_is_memory_reference(instr_get_src(instr, i))) {
-                // Use IARG_MEMORYREAD_EA equivalent
-                dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_read,
-                                   false, 1, instr_get_src(instr, i));
+                // Insert code to get memory address and call our handler
+                bool res = drutil_insert_get_mem_addr(drcontext, bb, instr, 
+                                                     instr_get_src(instr, i), 
+                                                     DR_REG_XAX, DR_REG_NULL);
+                if (res) {
+                    // XAX now contains the computed address
+                    dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_read,
+                                       false, 1, opnd_create_reg(DR_REG_XAX));
+                }
             }
         }
     }
@@ -255,8 +271,15 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     if (instr_writes_memory(instr)) {
         for (int i = 0; i < instr_num_dsts(instr); i++) {
             if (opnd_is_memory_reference(instr_get_dst(instr, i))) {
-                dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_write,
-                                   false, 1, instr_get_dst(instr, i));
+                // Insert code to get memory address and call our handler
+                bool res = drutil_insert_get_mem_addr(drcontext, bb, instr,
+                                                     instr_get_dst(instr, i),
+                                                     DR_REG_XBX, DR_REG_NULL);
+                if (res) {
+                    // XBX now contains the computed address
+                    dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_write,
+                                       false, 1, opnd_create_reg(DR_REG_XBX));
+                }
             }
         }
     }
@@ -296,6 +319,7 @@ event_exit(void)
 {
     dr_close_file(outfile);
     dr_mutex_destroy(trace_buffer_mutex);
+    dr_mutex_destroy(instr_count_mutex);
     
     if (!drmgr_unregister_tls_field(tls_idx) ||
         !drmgr_unregister_thread_init_event(event_thread_init) ||
@@ -326,8 +350,9 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
                           DR_FILE_WRITE_OVERWRITE | DR_FILE_ALLOW_LARGE);
     DR_ASSERT(outfile != INVALID_FILE);
 
-    // Initialize mutex for thread-safe file writing
+    // Initialize mutexes for thread-safe operations
     trace_buffer_mutex = dr_mutex_create();
+    instr_count_mutex = dr_mutex_create();
 
     // Register thread events
     tls_idx = drmgr_register_tls_field();
