@@ -1,0 +1,44 @@
+# Build directories
+build/
+build_*/
+cmake-build-*/
+
+# Compiled files
+*.o
+*.so
+*.dll
+*.dylib
+*.a
+
+# Test programs
+test_program
+
+# Trace files
+*.trace
+*.champsim
+*.xz
+*.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# System files
+.DS_Store
+Thumbs.db
