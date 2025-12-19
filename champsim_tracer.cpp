@@ -252,17 +252,38 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 
     // Handle memory operations
     // For memory references, we need to compute the address at runtime
+    // Use architecture-appropriate scratch registers
+#ifdef X86
+    reg_id_t scratch_reg_1 = DR_REG_XAX;
+    reg_id_t scratch_reg_2 = DR_REG_XBX;
+#elif defined(AARCH64)
+    reg_id_t scratch_reg_1 = DR_REG_X0;
+    reg_id_t scratch_reg_2 = DR_REG_X1;
+#elif defined(ARM)
+    reg_id_t scratch_reg_1 = DR_REG_R0;
+    reg_id_t scratch_reg_2 = DR_REG_R1;
+#elif defined(RISCV64)
+    reg_id_t scratch_reg_1 = DR_REG_A0;
+    reg_id_t scratch_reg_2 = DR_REG_A1;
+#else
+    // Fallback for other architectures
+    reg_id_t scratch_reg_1 = DR_REG_NULL;
+    reg_id_t scratch_reg_2 = DR_REG_NULL;
+#endif
+
     if (instr_reads_memory(instr)) {
         for (int i = 0; i < instr_num_srcs(instr); i++) {
             if (opnd_is_memory_reference(instr_get_src(instr, i))) {
                 // Insert code to get memory address and call our handler
-                bool res = drutil_insert_get_mem_addr(drcontext, bb, instr, 
-                                                     instr_get_src(instr, i), 
-                                                     DR_REG_XAX, DR_REG_NULL);
-                if (res) {
-                    // XAX now contains the computed address
-                    dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_read,
-                                       false, 1, opnd_create_reg(DR_REG_XAX));
+                if (scratch_reg_1 != DR_REG_NULL) {
+                    bool res = drutil_insert_get_mem_addr(drcontext, bb, instr, 
+                                                         instr_get_src(instr, i), 
+                                                         scratch_reg_1, DR_REG_NULL);
+                    if (res) {
+                        // scratch_reg_1 now contains the computed address, pass it as a value
+                        dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_read,
+                                           false, 1, opnd_create_reg(scratch_reg_1));
+                    }
                 }
             }
         }
@@ -272,13 +293,15 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
         for (int i = 0; i < instr_num_dsts(instr); i++) {
             if (opnd_is_memory_reference(instr_get_dst(instr, i))) {
                 // Insert code to get memory address and call our handler
-                bool res = drutil_insert_get_mem_addr(drcontext, bb, instr,
-                                                     instr_get_dst(instr, i),
-                                                     DR_REG_XBX, DR_REG_NULL);
-                if (res) {
-                    // XBX now contains the computed address
-                    dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_write,
-                                       false, 1, opnd_create_reg(DR_REG_XBX));
+                if (scratch_reg_2 != DR_REG_NULL) {
+                    bool res = drutil_insert_get_mem_addr(drcontext, bb, instr,
+                                                         instr_get_dst(instr, i),
+                                                         scratch_reg_2, DR_REG_NULL);
+                    if (res) {
+                        // scratch_reg_2 now contains the computed address, pass it as a value
+                        dr_insert_clean_call(drcontext, bb, instr, (void *)at_memory_write,
+                                           false, 1, opnd_create_reg(scratch_reg_2));
+                    }
                 }
             }
         }
