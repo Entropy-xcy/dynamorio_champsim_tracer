@@ -2,30 +2,44 @@
 
 This document describes the known limitations of the DynamoRIO ChampSim tracer compared to the original PIN implementation.
 
-## 1. Branch Taken Detection (⚠️ Important)
+## 1. Branch Taken Detection ✅ FIXED
 
-### Issue
-All conditional branches are currently marked as "taken" in the trace, regardless of whether they were actually taken or not taken during execution.
+### Previous Issue
+All conditional branches were marked as "taken" in the trace, regardless of actual execution.
+
+### Current Implementation
+**Proper branch taken detection is now implemented!**
+
+The tracer uses a two-phase approach:
+1. **Setup Phase**: When a conditional branch (CBR) is encountered, the tracer saves the instruction state and the fall-through address
+2. **Resolution Phase**: At the start of the next basic block, the tracer checks if execution arrived at the fall-through address:
+   - If yes → branch was NOT taken (branch_taken = 0)
+   - If no → branch WAS taken (branch_taken = 1)
+
+This approach leverages DynamoRIO's basic block structure to accurately track branch outcomes.
 
 ### Impact
-- **Branch prediction studies**: Results may be less accurate
-- **IPC simulation**: Overall performance metrics remain valid
-- **Cache simulation**: Not affected
-- **Prefetcher studies**: Not affected
+- ✅ **Branch prediction studies**: Now accurate
+- ✅ **IPC simulation**: Accurate
+- ✅ **Cache simulation**: Not affected (was already accurate)
+- ✅ **Prefetcher studies**: Not affected (was already accurate)
 
-### Why This Happens
-The current implementation uses a simplified instrumentation approach. To properly detect branch outcomes, we would need to:
-1. Track the next basic block executed after each branch
-2. Compare it against the branch target and fall-through addresses
-3. Determine if the branch was taken or not taken based on this comparison
+### Implementation Details
+```cpp
+// Thread-local storage tracks pending branches
+typedef struct {
+    trace_instr_format_t curr_instr;
+    trace_instr_format_t pending_cbr_instr;  // Saved CBR for resolution
+    app_pc last_cbr_fallthrough;              // Fall-through address
+    bool has_pending_cbr;                     // Pending flag
+} per_thread_t;
 
-### Workaround
-For studies that require accurate branch prediction:
-1. Use the original PIN tracer (x86/x86-64 only)
-2. Or contribute an enhancement (see issue #X)
+// At each BB start, resolve any pending branch
+resolve_pending_branch(current_bb_pc);
 
-### Future Fix
-We plan to implement proper branch outcome tracking in a future version. Contributions welcome!
+// For CBR instructions, save state for later resolution
+at_conditional_branch_setup(cbr_pc, fallthrough_pc);
+```
 
 ## 2. Register ID Encoding
 
@@ -47,22 +61,22 @@ None needed - this is not a functional limitation.
 
 ### x86/x86-64
 - ✅ Fully supported
-- Known issue: Branch taken detection (see #1)
+- ✅ Accurate branch taken detection
 
 ### ARM32/AArch32
-- ✅ Supported
+- ✅ Supported  
+- ✅ Accurate branch taken detection
 - ⚠️ Less tested than x86
-- Known issue: Branch taken detection (see #1)
 
 ### ARM64/AArch64
 - ✅ Supported
+- ✅ Accurate branch taken detection
 - ⚠️ Less tested than x86
-- Known issue: Branch taken detection (see #1)
 
 ### RISC-V
 - ⚠️ Experimental (depends on DynamoRIO RISC-V support)
+- ✅ Accurate branch taken detection (when DynamoRIO works)
 - Not extensively tested
-- May have additional limitations
 
 ## 4. Performance Overhead
 
@@ -143,7 +157,7 @@ Signal handlers are traced as part of the execution.
 
 | Feature | PIN Tracer | DynamoRIO Tracer | Impact |
 |---------|-----------|------------------|--------|
-| Branch taken accuracy | ✅ Accurate | ❌ Always "taken" | ⚠️ High for branch studies |
+| Branch taken accuracy | ✅ Accurate | ✅ Accurate | ✅ None |
 | Register tracking | ✅ Complete | ✅ Complete | ✅ None |
 | Memory tracking | ✅ Complete | ✅ Complete | ✅ None |
 | Multi-arch support | ❌ x86 only | ✅ x86/ARM/RISC-V | ✅ Major advantage |
@@ -166,7 +180,7 @@ If you encounter a limitation not listed here, please:
 ## Roadmap
 
 ### High Priority Fixes
-1. **Branch taken detection**: Implement proper tracking
+1. ~~**Branch taken detection**: Implement proper tracking~~ ✅ COMPLETED
 2. **Better testing**: More coverage on ARM/RISC-V
 
 ### Medium Priority Enhancements

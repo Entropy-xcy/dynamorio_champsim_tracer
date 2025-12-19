@@ -111,13 +111,11 @@ if (instr_is_cbr(instr)) {  // Conditional branch
 }
 ```
 
-**Note**: The current DynamoRIO implementation marks all conditional branches as taken. This is a **known limitation** that should be fixed in a future version. A more sophisticated implementation would track actual branch outcomes by comparing subsequent basic block addresses.
+**Note**: The DynamoRIO implementation now has **accurate branch taken detection** using a two-phase approach:
+1. When a conditional branch executes, the tracer saves the instruction state and fall-through address
+2. At the next basic block, the tracer resolves whether the branch was taken by comparing the current PC with the fall-through address
 
-**Impact**: This affects branch prediction accuracy in ChampSim simulations. For workloads where branch prediction is critical, consider:
-1. Using the PIN tracer if x86-only is acceptable
-2. Contributing an enhancement to track actual branch outcomes (see CONTRIBUTING.md)
-
-### 5. Thread Safety
+This achieves the same accuracy as PIN's `IARG_BRANCH_TAKEN` mechanism.### 5. Thread Safety
 
 #### PIN
 ```cpp

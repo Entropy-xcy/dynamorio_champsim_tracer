@@ -41,6 +41,9 @@ static uint64 instrCount = 0;
 // Thread-local storage for current instruction
 typedef struct {
     trace_instr_format_t curr_instr;
+    trace_instr_format_t pending_cbr_instr;  // Saved instruction record for pending CBR
+    app_pc last_cbr_fallthrough;              // Fall-through address of last conditional branch  
+    bool has_pending_cbr;                     // True if we executed a CBR and need to resolve it
 } per_thread_t;
 
 static int tls_idx;
@@ -87,11 +90,17 @@ should_write()
 }
 
 static void
-write_current_instruction(per_thread_t *data)
+write_trace_instruction(per_thread_t *data, trace_instr_format_t *instr_to_write)
 {
     dr_mutex_lock(trace_buffer_mutex);
-    dr_write_file(outfile, &data->curr_instr, sizeof(trace_instr_format_t));
+    dr_write_file(outfile, instr_to_write, sizeof(trace_instr_format_t));
     dr_mutex_unlock(trace_buffer_mutex);
+}
+
+static void
+write_current_instruction(per_thread_t *data)
+{
+    write_trace_instruction(data, &data->curr_instr);
 }
 
 template <typename T>
@@ -129,6 +138,47 @@ at_branch(bool taken)
     
     data->curr_instr.is_branch = 1;
     data->curr_instr.branch_taken = taken ? 1 : 0;
+}
+
+static void
+at_conditional_branch_setup(app_pc cbr_pc, app_pc fallthrough_pc)
+{
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *data = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+    
+    // Mark that this is a branch instruction
+    data->curr_instr.is_branch = 1;
+    
+    // Save the current instruction record for later resolution
+    memcpy(&data->pending_cbr_instr, &data->curr_instr, sizeof(trace_instr_format_t));
+    
+    // Save info about this conditional branch for resolution in the next BB
+    data->last_cbr_fallthrough = fallthrough_pc;
+    data->has_pending_cbr = true;
+}
+
+static void
+resolve_pending_branch(app_pc current_bb_pc)
+{
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *data = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+    
+    if (data->has_pending_cbr) {
+        // Check if we arrived at the fall-through address
+        if (current_bb_pc == data->last_cbr_fallthrough) {
+            // We're at the fall-through, so branch was NOT taken
+            data->pending_cbr_instr.branch_taken = 0;
+        } else {
+            // We're somewhere else (the branch target), so branch WAS taken
+            data->pending_cbr_instr.branch_taken = 1;
+        }
+        
+        // Write the resolved branch instruction to the trace
+        // Note: The should_write() check was already done when we set up the CBR
+        write_trace_instruction(data, &data->pending_cbr_instr);
+        
+        data->has_pending_cbr = false;
+    }
 }
 
 static void
@@ -173,6 +223,19 @@ at_instruction_end()
 }
 
 static void
+at_instruction_end_skip_if_cbr()
+{
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *data = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+    
+    // If this instruction has a pending CBR, don't write it now
+    // It will be written after resolution in the next BB
+    if (!data->has_pending_cbr && should_write()) {
+        write_current_instruction(data);
+    }
+}
+
+static void
 at_register_read(reg_id_t reg)
 {
     void *drcontext = dr_get_current_drcontext();
@@ -208,19 +271,26 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 
     app_pc pc = instr_get_app_pc(instr);
     
+    // At the start of each basic block, resolve any pending conditional branch
+    if (drmgr_is_first_instr(drcontext, instr)) {
+        dr_insert_clean_call(drcontext, bb, instr, (void *)resolve_pending_branch,
+                           false, 1, OPND_CREATE_INTPTR(pc));
+    }
+    
     // Insert call to reset instruction at the beginning
     dr_insert_clean_call(drcontext, bb, instr, (void *)at_instruction_start,
                         false, 1, OPND_CREATE_INTPTR(pc));
 
     // Handle branch instructions
-    // NOTE: Current implementation marks all branches as taken
-    // This is a simplification - a more sophisticated version would track
-    // actual branch outcomes by checking if the next basic block in the
-    // trace matches the fall-through or branch target address
+    // For conditional branches, we set up tracking and resolve in the next BB
     if (instr_is_cbr(instr)) {
-        // Conditional branch
-        dr_insert_clean_call(drcontext, bb, instr, (void *)at_branch,
-                           false, 1, OPND_CREATE_INT32(1));
+        // Conditional branch - set up for resolution in next BB
+        app_pc fallthrough = instr_get_app_pc(instr) + instr_length(drcontext, instr);
+        
+        dr_insert_clean_call(drcontext, bb, instr, (void *)at_conditional_branch_setup,
+                           false, 2,
+                           OPND_CREATE_INTPTR(pc),
+                           OPND_CREATE_INTPTR(fallthrough));
     } else if (instr_is_ubr(instr) || instr_is_mbr(instr)) {
         // Unconditional branches are always taken
         dr_insert_clean_call(drcontext, bb, instr, (void *)at_branch,
@@ -312,7 +382,9 @@ event_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     }
 
     // Insert call at the end of instruction to write if needed
-    dr_insert_clean_call(drcontext, bb, instr, (void *)at_instruction_end,
+    // For conditional branches, we use a special callback that skips writing
+    // if there's a pending CBR (it will be written after resolution)
+    dr_insert_clean_call(drcontext, bb, instr, (void *)at_instruction_end_skip_if_cbr,
                         false, 0);
 
     return DR_EMIT_DEFAULT;

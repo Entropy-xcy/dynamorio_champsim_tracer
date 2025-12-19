@@ -141,7 +141,7 @@ Fully supported with the same semantics as the original PIN tracer.
 
 3. **Architecture Support**: DynamoRIO supports ARM and RISC-V, which PIN does not.
 
-4. **⚠️ Branch Taken Detection**: Currently, all conditional branches are marked as "taken". This is a known limitation. See [LIMITATIONS.md](LIMITATIONS.md) for details and impact.
+4. **✅ Branch Taken Detection**: Now accurately detects whether conditional branches are taken or not using basic block transition tracking.
 
 For a detailed comparison, see [PIN_vs_DYNAMORIO.md](PIN_vs_DYNAMORIO.md).
 For known limitations, see [LIMITATIONS.md](LIMITATIONS.md).
